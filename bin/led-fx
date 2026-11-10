@@ -1,0 +1,127 @@
+#!/bin/sh
+# led-fx: управление кольцом подсветки Яндекс Станции Лайт (AW9110 / sysfs)
+BASE=/sys/class/leds
+PIDFILE=/tmp/led-fx.pid
+
+kill_prev() {
+  if [ -f "$PIDFILE" ]; then
+    kill $(cat "$PIDFILE") 2>/dev/null
+    rm -f "$PIDFILE"
+  fi
+}
+
+set_raw() {
+  z=$1; r=$2; g=$3; b=$4
+  echo $r > "$BASE/micro:red:ring$z/brightness" 2>/dev/null
+  echo $g > "$BASE/micro:green:ring$z/brightness" 2>/dev/null
+  echo $b > "$BASE/micro:blue:ring$z/brightness" 2>/dev/null
+}
+
+all() {
+  r=$1; g=$2; b=$3
+  for z in 1 2 3; do set_raw $z $r $g $b; done
+}
+
+off() {
+  kill_prev
+  all 0 0 0
+  echo "[*] Светодиоды выключены"
+}
+
+police() {
+  kill_prev
+  echo $$ > "$PIDFILE"
+  echo "[*] Режим: Полиция (Red/Blue strobe). Остановка: led-fx stop"
+  trap 'all 0 0 0; rm -f "$PIDFILE"; exit 0' INT TERM
+  while true; do
+    for i in 1 2 3; do
+      set_raw 1 255 0 0; set_raw 2 255 0 0; set_raw 3 0 0 0; sleep 0.08
+      all 0 0 0; sleep 0.04
+    done
+    for i in 1 2 3; do
+      set_raw 1 0 0 0; set_raw 2 0 0 255; set_raw 3 0 0 255; sleep 0.08
+      all 0 0 0; sleep 0.04
+    done
+  done
+}
+
+spin() {
+  kill_prev
+  echo $$ > "$PIDFILE"
+  echo "[*] Режим: Вращение цвета ($1). Остановка: led-fx stop"
+  trap 'all 0 0 0; rm -f "$PIDFILE"; exit 0' INT TERM
+  c=${1:-cyan}
+  r=0; g=255; b=255
+  case "$c" in
+    red)    r=255; g=0;   b=0 ;;
+    green)  r=0;   g=255; b=0 ;;
+    blue)   r=0;   g=0;   b=255 ;;
+    yellow) r=255; g=200; b=0 ;;
+    purple) r=255; g=0;   b=255 ;;
+    white)  r=255; g=255; b=255 ;;
+  esac
+  while true; do
+    set_raw 1 $r $g $b; set_raw 2 0 0 0; set_raw 3 0 0 0; sleep 0.12
+    set_raw 1 0 0 0; set_raw 2 $r $g $b; set_raw 3 0 0 0; sleep 0.12
+    set_raw 1 0 0 0; set_raw 2 0 0 0; set_raw 3 $r $g $b; sleep 0.12
+  done
+}
+
+rainbow() {
+  kill_prev
+  echo $$ > "$PIDFILE"
+  echo "[*] Режим: Радужная волна. Остановка: led-fx stop"
+  trap 'all 0 0 0; rm -f "$PIDFILE"; exit 0' INT TERM
+  while true; do
+    set_raw 1 255 0 0;   set_raw 2 0 255 0;   set_raw 3 0 0 255;   sleep 0.2
+    set_raw 1 255 120 0; set_raw 2 0 255 255; set_raw 3 200 0 255; sleep 0.2
+    set_raw 1 0 255 0;   set_raw 2 0 0 255;   set_raw 3 255 0 0;   sleep 0.2
+    set_raw 1 0 255 255; set_raw 2 200 0 255; set_raw 3 255 120 0; sleep 0.2
+    set_raw 1 0 0 255;   set_raw 2 255 0 0;   set_raw 3 0 255 0;   sleep 0.2
+  done
+}
+
+breathe() {
+  kill_prev
+  echo $$ > "$PIDFILE"
+  echo "[*] Режим: Дыхание ($1). Остановка: led-fx stop"
+  trap 'all 0 0 0; rm -f "$PIDFILE"; exit 0' INT TERM
+  c=${1:-purple}
+  kr=1; kg=0; kb=1
+  case "$c" in
+    red)    kr=1; kg=0; kb=0 ;;
+    green)  kr=0; kg=1; kb=0 ;;
+    blue)   kr=0; kg=0; kb=1 ;;
+    cyan)   kr=0; kg=1; kb=1 ;;
+    yellow) kr=1; kg=1; kb=0 ;;
+    white)  kr=1; kg=1; kb=1 ;;
+  esac
+  while true; do
+    for v in 5 15 30 60 100 150 210 255 210 150 100 60 30 15 5 0; do
+      all $((v * kr)) $((v * kg)) $((v * kb))
+      sleep 0.06
+    done
+  done
+}
+
+case "${1:-help}" in
+  off)          off ;;
+  stop)         kill_prev; all 0 0 0; echo "[*] Анимации остановлены" ;;
+  all|color)    kill_prev; all ${2:-255} ${3:-255} ${4:-255} ;;
+  zone)         kill_prev; set_raw $2 $3 $4 $5 ;;
+  police)       police ;;
+  spin)         spin ${2:-cyan} ;;
+  rainbow)      rainbow ;;
+  breathe)      breathe ${2:-purple} ;;
+  *)
+    echo "Использование: led-fx <команда> [параметры]"
+    echo "  led-fx off                    - выключить подсветку"
+    echo "  led-fx stop                   - остановить анимации"
+    echo "  led-fx color <R> <G> <B>      - цвет на все 3 зоны (0-255)"
+    echo "  led-fx zone <1|2|3> <R> <G> <B> - цвет на конкретную зону"
+    echo "  led-fx rainbow                - радужная волна по кругу"
+    echo "  led-fx police                 - красно-синий стробоскоп"
+    echo "  led-fx spin [red|green|blue|cyan|purple|yellow|white] - вращающийся луч"
+    echo "  led-fx breathe [color]        - плавное дыхание / пульсация"
+    ;;
+esac

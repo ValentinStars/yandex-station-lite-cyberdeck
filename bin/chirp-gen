@@ -1,0 +1,77 @@
+#!/usr/bin/env python3
+import sys
+import math
+import struct
+import wave
+import subprocess
+import os
+
+BASE_FREQ = 1140
+STEP_FREQ = 240
+SYMBOL_DUR = 0.040  # 40 ms
+SAMPLE_RATE = 48000
+
+def text_to_nibbles(text):
+    nibbles = []
+    for b in text.encode('utf-8'):
+        nibbles.append((b >> 4) & 0x0F)
+        nibbles.append(b & 0x0F)
+    return nibbles
+
+def generate_chirp_wav(text, output_file):
+    nibbles = text_to_nibbles(text)
+    preamble = [15, 0, 15, 0, 15, 0, 15, 0]
+    all_nibbles = preamble + nibbles
+    samples_per_symbol = int(SAMPLE_RATE * SYMBOL_DUR)
+    total_samples = []
+    phase = 0.0
+    for n in all_nibbles:
+        freq = BASE_FREQ + (STEP_FREQ * n)
+        phase_inc = 2.0 * math.pi * freq / SAMPLE_RATE
+        for i in range(samples_per_symbol):
+            # Windowing: smooth edges of each 40ms pulse
+            env = 1.0
+            if i < 50:
+                env = i / 50.0
+            elif i > samples_per_symbol - 50:
+                env = (samples_per_symbol - i) / 50.0
+            val = math.sin(phase) * 18000.0 * env
+            total_samples.append(int(val))
+            phase += phase_inc
+            if phase > 2.0 * math.pi:
+                phase -= 2.0 * math.pi
+                
+    with wave.open(output_file, 'w') as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(SAMPLE_RATE)
+        data = struct.pack(f'<{len(total_samples)}h', *total_samples)
+        wf.writeframes(data)
+    print(f'[+] Создан {output_file}: {len(all_nibbles)} символов ({len(text)} байт текста)')
+
+def main():
+    if len(sys.argv) < 2:
+        print('Использование:')
+        print('  chirp-gen encode <текст> [файл.wav]')
+        print('  chirp-gen play <текст>')
+        sys.exit(1)
+    
+    cmd = sys.argv[1]
+    if cmd == 'encode':
+        text = sys.argv[2] if len(sys.argv) > 2 else 'HELLO'
+        outfile = sys.argv[3] if len(sys.argv) > 3 else '/data/out.wav'
+        generate_chirp_wav(text, outfile)
+    elif cmd == 'play':
+        text = sys.argv[2] if len(sys.argv) > 2 else 'ALICE'
+        tmp_wav = '/data/tmp_chirp.wav'
+        generate_chirp_wav(text, tmp_wav)
+        print(f'[*] Воспроизведение через динамик станции...')
+        subprocess.run(['play-audio', tmp_wav])
+    else:
+        # fallback: assume user passed text to play
+        tmp_wav = '/data/tmp_chirp.wav'
+        generate_chirp_wav(cmd, tmp_wav)
+        subprocess.run(['play-audio', tmp_wav])
+
+if __name__ == '__main__':
+    main()

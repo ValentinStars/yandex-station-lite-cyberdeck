@@ -1,0 +1,16 @@
+#!/bin/sh
+case "$1" in
+    start)
+        echo "Starting Ambient Lights Daemon..."
+        nohup /opt/bin/python3 /data/opt/bin/ambient-lights >/dev/null 2>&1 &
+        ;;
+    stop)
+        python3 -c 'import os, signal; [os.kill(int(p), signal.SIGTERM) for p in os.popen("pidof python3").read().split() if "ambient-lights" in open(f"/proc/{p}/cmdline").read()]' 2>/dev/null
+        led-fx off >/dev/null 2>&1
+        ;;
+    restart)
+        $0 stop
+        sleep 1
+        $0 start
+        ;;
+esac

@@ -1,0 +1,21 @@
+#!/bin/sh
+FILE="$1"
+if [ -z "$FILE" ] || [ ! -f "$FILE" ]; then
+    echo "Использование: play-audio /path/to/sound.(wav|mp3|opus)"
+    exit 1
+fi
+
+case "$FILE" in
+    *.wav)
+        /system/vendor/quasar/maind --gst-launch "filesrc location=$FILE ! wavparse ! audioconvert ! audioresample ! alsasink" >/dev/null 2>&1
+        ;;
+    *.opus)
+        /system/vendor/quasar/maind --gst-launch "filesrc location=$FILE ! oggdemux ! opusdec ! audioconvert ! audioresample ! alsasink" >/dev/null 2>&1
+        ;;
+    *.mp3)
+        /system/vendor/quasar/maind --gst-launch "filesrc location=$FILE ! mpegaudioparse ! mpg123audiodec ! audioconvert ! audioresample ! alsasink" >/dev/null 2>&1
+        ;;
+    *)
+        /system/vendor/quasar/maind --gst-launch "playbin uri=file://$FILE audio-sink=alsasink video-sink=fakesink" >/dev/null 2>&1
+        ;;
+esac

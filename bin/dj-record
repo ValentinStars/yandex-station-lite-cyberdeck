@@ -1,0 +1,66 @@
+#!/usr/bin/env python3
+import time
+import sys
+
+DIFF_NODE = "/sys/devices/platform/soc/ffd00000.cbus/ffd1f000.i2c/i2c-0/0-0012/diff"
+
+def read_diff():
+    try:
+        with open(DIFF_NODE, "r") as f:
+            lines = f.readlines()
+        ch0 = int(lines[0].split("=")[1].strip())
+        ch1 = int(lines[1].split("=")[1].strip())
+        ch2 = int(lines[2].split("=")[1].strip())
+        return ch0, ch1, ch2
+    except Exception:
+        return 0, 0, 0
+
+def record_session(duration=6.0, interval=0.03):
+    print("=" * 60)
+    print("🎧 DJ WICKY-RECORDER: ПРИГОТОВЬСЯ!")
+    print("3...")
+    time.sleep(1)
+    print("2...")
+    time.sleep(1)
+    print("1...")
+    time.sleep(1)
+    print("🔥 ДАВАЙ! МАШИ ТУДА-СЮДА НАД КОЛОНКОЙ (6 СЕКУНД)!")
+    print("=" * 60)
+    
+    start_time = time.time()
+    history = []
+    
+    while time.time() - start_time < duration:
+        t = time.time() - start_time
+        ch0, ch1, ch2 = read_diff()
+        history.append((t, ch0, ch1, ch2))
+        time.sleep(interval)
+        
+    print("\n[✓] Запись завершена! Анализирую траекторию взмахов...\n")
+    
+    # Save to file
+    with open("/data/swipe_recording.csv", "w") as f:
+        f.write("time,ch0,ch1,ch2\n")
+        for h in history:
+            f.write(f"{h[0]:.3f},{h[1]},{h[2]},{h[3]}\n")
+            
+    # ASCII visualizer of gesture
+    print("ТАЙМЛАЙН ДЕЛЬТЫ ЕМКОСТИ (ASCII СРЕЗ ВЗМАХОВ):")
+    print("Время   CH0(Лево)        CH1(Центр)       CH2(Право)")
+    print("-" * 60)
+    
+    # Print downsampled view
+    step = max(1, len(history) // 40)
+    for i in range(0, len(history), step):
+        t, c0, c1, c2 = history[i]
+        bar0 = "#" * max(0, min(12, int(c0 / 5)))
+        bar1 = "#" * max(0, min(12, int(c1 / 5)))
+        bar2 = "#" * max(0, min(12, int(c2 / 5)))
+        print(f"{t:04.2f}s | {bar0:12} | {bar1:12} | {bar2:12} | (c0={c0:3d}, c1={c1:3d}, c2={c2:3d})")
+        
+    print("-" * 60)
+    print("Данные сохранены в /data/swipe_recording.csv")
+
+if __name__ == "__main__":
+    dur = float(sys.argv[1]) if len(sys.argv) > 1 else 6.0
+    record_session(duration=dur)
