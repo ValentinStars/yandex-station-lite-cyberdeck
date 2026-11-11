@@ -36,13 +36,16 @@ else
     konsole -p tabtitle="OPSEC_SECURE" --geometry "${WIN_W}x${WIN_H}+15+410" -e opsec &
 fi
 
-# 4. btop (Bottom-Right)
-if command -v btop >/dev/null 2>&1; then
-    if [ "$TERM_BIN" = "/usr/bin/kitty" ]; then
-        kitty $KITTY_OPTS --title "OPSEC_SYSTEM" btop &
-    else
-        konsole -p tabtitle="OPSEC_SYSTEM" --geometry "${WIN_W}x${WIN_H}+830+410" -e btop &
-    fi
+# 4. htop system monitor (Bottom-Right)
+MON_BIN="/usr/bin/htop"
+if ! command -v "$MON_BIN" >/dev/null 2>&1; then
+    MON_BIN="top"
+fi
+
+if [ "$TERM_BIN" = "/usr/bin/kitty" ]; then
+    kitty $KITTY_OPTS --title "OPSEC_SYSTEM" "$MON_BIN" &
+else
+    konsole -p tabtitle="OPSEC_SYSTEM" --geometry "${WIN_W}x${WIN_H}+830+410" -e "$MON_BIN" &
 fi
 
 # Position windows in KDE Wayland via KWin Scripting
