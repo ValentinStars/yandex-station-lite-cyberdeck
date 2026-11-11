@@ -32,17 +32,11 @@ def load_commands():
         return {}
 
 def speak_georgy(text):
-    """Synthesizes speech using gTTS + pitch down into deep male voice, streams to station aplay"""
+    """Synthesizes speech using espeak-ng Russian voice and streams directly to station aplay"""
     try:
-        from gtts import gTTS
-        mp3_path = "/tmp/georgy_temp.mp3"
         wav_path = "/tmp/georgy_temp.wav"
-        tts = gTTS(text, lang="ru")
-        tts.save(mp3_path)
         subprocess.run([
-            "ffmpeg", "-y", "-i", mp3_path,
-            "-filter_complex", "asetrate=24000*0.82,atempo=1.22",
-            "-ar", "24000", "-ac", "1", "-c:a", "pcm_s16le", wav_path
+            "espeak-ng", "-v", "ru", "-s", "150", "-w", wav_path, text
         ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         
         with open(wav_path, "rb") as f:
