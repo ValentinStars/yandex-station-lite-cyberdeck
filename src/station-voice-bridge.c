@@ -336,11 +336,10 @@ static int find_field(const uint8_t *p, const uint8_t *end, uint64_t target_fiel
 
 /* ================= Communication with Laptop ================= */
 
-static bool execute_on_laptop(const char *action, char *tts_buf, size_t tts_buf_size) {
+static bool send_raw_to_laptop(const char *command, char *resp_buf, size_t resp_buf_size) {
     int sock = socket(AF_INET, SOCK_STREAM, 0);
     if (sock < 0) return false;
 
-    // Non-blocking connect with 1.5s timeout
     int flags = fcntl(sock, F_GETFL, 0);
     fcntl(sock, F_SETFL, flags | O_NONBLOCK);
 
@@ -367,27 +366,35 @@ static bool execute_on_laptop(const char *action, char *tts_buf, size_t tts_buf_
         return false;
     }
 
-    // Set back to blocking with timeout
     fcntl(sock, F_SETFL, flags);
     struct timeval tv = {.tv_sec = 2, .tv_usec = 0};
     setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
     setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
 
-    char req[128];
-    snprintf(req, sizeof(req), "ACTION %s\n", action);
-    if (!send_all(sock, req, strlen(req))) {
+    if (!send_all(sock, command, strlen(command))) {
         close(sock);
         return false;
     }
 
-    char resp[512];
-    ssize_t n = read(sock, resp, sizeof(resp) - 1);
+    if (resp_buf && resp_buf_size > 0) {
+        ssize_t n = read(sock, resp_buf, resp_buf_size - 1);
+        if (n > 0) {
+            resp_buf[n] = '\0';
+            char *nl = strpbrk(resp_buf, "\r\n");
+            if (nl) *nl = '\0';
+        } else {
+            resp_buf[0] = '\0';
+        }
+    }
     close(sock);
-    if (n <= 0) return false;
-    resp[n] = '\0';
+    return true;
+}
 
-    char *nl = strpbrk(resp, "\r\n");
-    if (nl) *nl = '\0';
+static bool execute_on_laptop(const char *action, char *tts_buf, size_t tts_buf_size) {
+    char req[128];
+    snprintf(req, sizeof(req), "ACTION %s\n", action);
+    char resp[512] = "";
+    if (!send_raw_to_laptop(req, resp, sizeof(resp))) return false;
 
     if (strncmp(resp, "OK ", 3) == 0) {
         char *custom_tts = resp + 3;
@@ -398,7 +405,6 @@ static bool execute_on_laptop(const char *action, char *tts_buf, size_t tts_buf_
         }
         return true;
     }
-
     return false;
 }
 
@@ -408,6 +414,7 @@ static int g_alice_state = 0;
 static bool g_armed = false;
 static bool g_handled = false;
 static char g_last_req_id[64] = "";
+static int g_georgy_mode = 0;
 
 static void process_frame(int alice_fd, const uint8_t *buf, size_t len) {
     uint64_t type = 0, state_len = 0;
@@ -478,6 +485,32 @@ static void process_frame(int alice_fd, const uint8_t *buf, size_t len) {
         utf8_to_lower(phrase_lower);
 
         printf("[*] Heard phrase: \"%s\"\n", phrase);
+
+        // 1. Check Georgy activation ("давай георгия", "позови георгия", "включи георгия")
+        if ((strstr(phrase_lower, "давай") || strstr(phrase_lower, "позови") || strstr(phrase_lower, "включи")) &&
+            strstr(phrase_lower, "георги")) {
+            printf("[+] GEORGY ACTIVATED via voice!\n");
+            send_cancel(alice_fd);
+            g_georgy_mode = 1;
+            char resp[128] = "";
+            send_raw_to_laptop("GEORGY_ACTIVATE\n", resp, sizeof(resp));
+            return;
+        }
+
+        // 2. If Georgy is active OR phrase addresses Georgy directly
+        if (g_georgy_mode || strstr(phrase_lower, "георги")) {
+            printf("[+] GEORGY MODE active, dispatching: \"%s\"\n", phrase);
+            send_cancel(alice_fd);
+            char req[MAX_TEXT_LEN + 32];
+            snprintf(req, sizeof(req), "GEORGY %s\n", phrase);
+            char resp[128] = "";
+            send_raw_to_laptop(req, resp, sizeof(resp));
+            if (strstr(resp, "DEACTIVATE")) {
+                printf("[*] GEORGY DEACTIVATED, returning to Alice.\n");
+                g_georgy_mode = 0;
+            }
+            return;
+        }
 
         // Check rules
         for (int i = 0; i < g_rule_count; i++) {
