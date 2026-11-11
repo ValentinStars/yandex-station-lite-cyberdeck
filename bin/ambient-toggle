@@ -1,0 +1,72 @@
+#!/bin/sh
+# ambient-toggle - Fast toggle utility for native C ambient-lights daemon
+PIDFILE="/var/run/ambient-lights.pid"
+BIN="/data/opt/bin/ambient-lights-c"
+
+is_running() {
+    if [ -f "$PIDFILE" ]; then
+        PID=$(cat "$PIDFILE" 2>/dev/null)
+        if [ -n "$PID" ] && kill -0 "$PID" 2>/dev/null; then
+            return 0
+        fi
+    fi
+    pidof ambient-lights-c >/dev/null 2>&1
+}
+
+start_ambient() {
+    if is_running; then
+        echo "[ambient] Ambient lights is ALREADY running."
+        return 0
+    fi
+    echo "[ambient] Starting native C ambient lights (0% CPU, 4KB RAM)..."
+    nohup "$BIN" >/dev/null 2>&1 &
+    usleep 200000 2>/dev/null || sleep 1
+    if is_running; then
+        echo "[ambient] Ambient lights: ON (PID $(cat "$PIDFILE" 2>/dev/null || pidof ambient-lights-c))"
+    else
+        echo "[ambient] Error: Failed to start ambient lights."
+    fi
+}
+
+stop_ambient() {
+    echo "[ambient] Stopping ambient lights..."
+    if [ -f "$PIDFILE" ]; then
+        PID=$(cat "$PIDFILE" 2>/dev/null)
+        [ -n "$PID" ] && kill "$PID" 2>/dev/null
+        rm -f "$PIDFILE"
+    fi
+    killall ambient-lights-c 2>/dev/null
+    # Turn off all LEDs cleanly
+    for z in 1 2 3; do
+        for c in red green blue; do
+            echo 0 > "/sys/class/leds/micro:${c}:ring${z}/brightness" 2>/dev/null
+        done
+    done
+    echo "[ambient] Ambient lights: OFF"
+}
+
+case "$1" in
+    on|start)
+        start_ambient
+        ;;
+    off|stop)
+        stop_ambient
+        ;;
+    status)
+        if is_running; then
+            echo "[ambient] Ambient lights: RUNNING (PID $(cat "$PIDFILE" 2>/dev/null || pidof ambient-lights-c))"
+        else
+            echo "[ambient] Ambient lights: STOPPED"
+        fi
+        ;;
+    toggle|"")
+        if is_running; then
+            stop_ambient
+        else
+            start_ambient
+        fi
+        ;;
+    *)
+        echo "Usage: ambient-toggle [toggle|on|off|status]"
+        ;;
+esac
