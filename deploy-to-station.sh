@@ -19,6 +19,9 @@ ssh -p "$STATION_PORT" root@"$STATION_IP" "killall -9 station-voice-bridge 2>/de
 echo "[+] Uploading station-voice-bridge binary..."
 cat "$REPO_DIR/bin/station-voice-bridge" | ssh -p "$STATION_PORT" root@"$STATION_IP" "cat > /data/opt/bin/station-voice-bridge && chmod +x /data/opt/bin/station-voice-bridge"
 
+echo "[+] Uploading alice-say-wait.py..."
+cat "$REPO_DIR/bin/alice-say-wait.py" | ssh -p "$STATION_PORT" root@"$STATION_IP" "cat > /data/opt/bin/alice-say-wait.py && chmod +x /data/opt/bin/alice-say-wait.py"
+
 echo "[+] Uploading voice-triggers.conf..."
 ssh -p "$STATION_PORT" root@"$STATION_IP" "mkdir -p /data/opt/etc"
 cat "$REPO_DIR/etc/voice-triggers.conf" | ssh -p "$STATION_PORT" root@"$STATION_IP" "cat > /data/opt/etc/voice-triggers.conf"
