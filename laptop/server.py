@@ -43,7 +43,7 @@ def speak_georgy(text):
         with open(wav_path, "rb") as f:
             led_on = "echo 255 > /sys/class/leds/micro:red:ring1/brightness; echo 255 > /sys/class/leds/micro:red:ring2/brightness; echo 255 > /sys/class/leds/micro:red:ring3/brightness"
             led_off = "echo 0 > /sys/class/leds/micro:red:ring1/brightness; echo 0 > /sys/class/leds/micro:red:ring2/brightness; echo 0 > /sys/class/leds/micro:red:ring3/brightness"
-            remote_cmd = f"amixer sset 'Master' 220 >/dev/null 2>&1; {led_on}; aplay -D default; {led_off}"
+            remote_cmd = f"{led_on}; aplay -D default; {led_off}"
             subprocess.run([
                 "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5",
                 "-p", str(STATION_PORT), f"root@{STATION_IP}", remote_cmd
