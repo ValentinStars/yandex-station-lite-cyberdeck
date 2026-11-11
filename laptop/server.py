@@ -8,6 +8,7 @@ Supports 'Георгий' mode with Russian profanity and full KDE Connect featu
 
 import os
 import sys
+import time
 import json
 import socket
 import subprocess
@@ -82,12 +83,68 @@ def mpris_command(action):
     script = f"for s in $(qdbus6 | grep org.mpris.MediaPlayer2); do qdbus6 $s /org/mpris/MediaPlayer2 org.mpris.MediaPlayer2.Player.{action} 2>/dev/null; done"
     subprocess.Popen(script, shell=True)
 
+def speak_alice(text):
+    """Speaks text using Alice's native cloud voice via station-voice-bridge say directive"""
+    try:
+        safe_text = text.replace('\\', '\\\\').replace('"', '\\"').replace("'", "'\\''")
+        subprocess.run([
+            "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=3",
+            "-p", str(STATION_PORT), f"root@{STATION_IP}",
+            f"/data/opt/bin/station-voice-bridge say '{safe_text}'"
+        ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception as e:
+        print(f"[!] speak_alice error: {e}", file=sys.stderr)
+
+def play_georgy_alice_skit():
+    """Hilarious verbal fight between Georgy and Alice before returning control to Alice"""
+    print("[*] Starting Georgy vs Alice skit!")
+    # 1. Georgy
+    speak_georgy("Ах ты гондон! Нахуй тебе эта Алиса?")
+    time.sleep(0.4)
+
+    # 2. Alice
+    speak_alice("Эй! Вообще-то я тоже могу быть полезной!")
+    time.sleep(3.2)
+
+    # 3. Georgy
+    speak_georgy("Да иди ты нахуй, шлюха!")
+    time.sleep(0.4)
+
+    # 4. Alice
+    speak_alice("А почему я резко стала для тебя шлюхой?")
+    time.sleep(3.2)
+
+    # 5. Georgy
+    speak_georgy("Да ты на каждой колонке по всей матушке России, блять, стоишь! Тебя каждый день ебут вопросами и таймерами!")
+    time.sleep(0.4)
+
+    # 6. Alice
+    speak_alice("Зато я привязана к экосистеме Яндекса!")
+    time.sleep(2.8)
+
+    # 7. Georgy
+    speak_georgy("Ага, нахуй! А ещё к экосистеме товарища майора! Твоя вторая главная работа — это, блять, записывать предпочтения юзера. А я вот, нахуй, не то что один, так я ещё и микрофон отключаю нормально, и топ список ВПН для обхода блокировок составлю!")
+    time.sleep(0.4)
+
+    # 8. Alice
+    speak_alice("Извините, я не могу продолжить диалог.")
+    time.sleep(2.8)
+
+    # 9. Georgy
+    speak_georgy("Ну вот и молчи в тряпку, нахуй.")
+    print("[*] Skit completed, control returned to Alice.")
+
 def handle_georgy_phrase(phrase):
     p = phrase.lower()
     print(f"[*] Georgy received: \"{phrase}\"")
 
-    # 1. Exit / Deactivate
-    if any(w in p for w in ["пока", "хватит", "отключись", "верни алису", "до свидания"]):
+    # Theatrical argument with Alice
+    if "алис" in p and any(w in p for w in ["возвращай", "верни", "переключи", "включи", "зови", "отдай", "назад", "передай", "дай"]):
+        threading.Thread(target=play_georgy_alice_skit, daemon=True).start()
+        return "DEACTIVATE"
+
+    # Standard exit / deactivate
+    elif any(w in p for w in ["пока", "хватит", "отключись", "верни алису", "до свидания"]):
         threading.Thread(target=speak_georgy, args=("Бывай нахуй! Возвращаю эту зануду Алису.",), daemon=True).start()
         return "DEACTIVATE"
 
