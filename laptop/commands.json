@@ -25,7 +25,7 @@
   },
   "opsec": {
     "cmd": "/home/valentin_stars/yandex-station-lite-cyberdeck/laptop/launch-opsec.sh &",
-    "tts": "Режим опсек активирован! Заметаю следы."
+    "tts": "Включаю opsec!"
   },
   "prikol": {
     "cmd": "notify-send 'Яндекс Станция' '🔥 Прикол сработал!' --icon=dialog-information",
