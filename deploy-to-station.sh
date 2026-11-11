@@ -25,7 +25,10 @@ cat "$REPO_DIR/etc/voice-triggers.conf" | ssh -p "$STATION_PORT" root@"$STATION_
 
 echo "[+] Uploading sounds..."
 ssh -p "$STATION_PORT" root@"$STATION_IP" "mkdir -p /data/opt/sounds"
-cat "$REPO_DIR/sounds/spotter_start.wav" | ssh -p "$STATION_PORT" root@"$STATION_IP" "cat > /data/opt/sounds/spotter_start.wav"
+for sfile in "$REPO_DIR"/sounds/*.wav; do
+    fname=$(basename "$sfile")
+    cat "$sfile" | ssh -p "$STATION_PORT" root@"$STATION_IP" "cat > /data/opt/sounds/$fname"
+done
 
 echo "[+] Uploading init service..."
 ssh -p "$STATION_PORT" root@"$STATION_IP" "mount -o remount,rw /"
