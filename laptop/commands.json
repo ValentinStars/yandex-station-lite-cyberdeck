@@ -1,6 +1,6 @@
 {
   "ultrakill": {
-    "cmd": "gamemoderun steam steam://rungameid/1229490 &",
+    "cmd": "gamemoderun /home/valentin_stars/ULTRAKILL/run.sh &",
     "tts": "Запускаю Ультракилл на ноуте! Приятной игры!"
   },
   "youtube": {

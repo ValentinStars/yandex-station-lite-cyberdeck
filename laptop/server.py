@@ -263,7 +263,7 @@ def handle_georgy_phrase(phrase):
         threading.Thread(target=speak_georgy, args=("Дискорд врубил, иди пизди с пацанами.",), daemon=True).start()
 
     elif "ультракилл" in p or "ultrakill" in p:
-        subprocess.Popen("gamemoderun steam steam://rungameid/1229490 &", shell=True, env=os.environ.copy())
+        subprocess.Popen("gamemoderun /home/valentin_stars/ULTRAKILL/run.sh &", shell=True, env=os.environ.copy())
         threading.Thread(target=speak_georgy, args=("Запускаю Ультракилл, разъеби там всех нахуй!",), daemon=True).start()
 
     # 17. Default fallback
