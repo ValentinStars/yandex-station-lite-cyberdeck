@@ -43,9 +43,9 @@ def speak_georgy(text):
         with open(wav_path, "rb") as f:
             led_on = "echo 255 > /sys/class/leds/micro:red:ring1/brightness; echo 255 > /sys/class/leds/micro:red:ring2/brightness; echo 255 > /sys/class/leds/micro:red:ring3/brightness"
             led_off = "echo 0 > /sys/class/leds/micro:red:ring1/brightness; echo 0 > /sys/class/leds/micro:red:ring2/brightness; echo 0 > /sys/class/leds/micro:red:ring3/brightness"
-            remote_cmd = f"{led_on}; aplay -D default; {led_off}"
+            remote_cmd = f"amixer sset 'Master' 220 >/dev/null 2>&1; {led_on}; aplay -D default; {led_off}"
             subprocess.run([
-                "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=2",
+                "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5",
                 "-p", str(STATION_PORT), f"root@{STATION_IP}", remote_cmd
             ], stdin=f, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except Exception as e:
@@ -132,6 +132,12 @@ def play_georgy_alice_skit():
 
     # 9. Georgy
     speak_georgy("Ну вот и молчи в тряпку, нахуй.")
+    try:
+        subprocess.run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=3",
+                        "-p", str(STATION_PORT), f"root@{STATION_IP}", "echo 'off' > /tmp/georgy_cmd"],
+                       check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception:
+        pass
     print("[*] Skit completed, control returned to Alice.")
 
 def handle_georgy_phrase(phrase):
@@ -141,7 +147,7 @@ def handle_georgy_phrase(phrase):
     # Theatrical argument with Alice
     if "алис" in p and any(w in p for w in ["возвращай", "верни", "переключи", "включи", "зови", "отдай", "назад", "передай", "дай"]):
         threading.Thread(target=play_georgy_alice_skit, daemon=True).start()
-        return "DEACTIVATE"
+        return "OK"
 
     # Standard exit / deactivate
     elif any(w in p for w in ["пока", "хватит", "отключись", "верни алису", "до свидания"]):

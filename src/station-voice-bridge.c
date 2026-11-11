@@ -567,8 +567,12 @@ static void process_frame(int alice_fd, const uint8_t *buf, size_t len) {
 
         printf("[*] Heard phrase: \"%s\"\n", phrase);
 
-        // 1. Check Georgy activation or command explicitly mentioning Georgy
-        if (strstr(phrase_lower, "георги")) {
+        // 1. Check Georgy activation or command explicitly mentioning Georgy (including common ASR misrecognitions)
+        bool is_georgy_call = (strstr(phrase_lower, "георги") != NULL ||
+                               strstr(phrase_lower, "григори") != NULL ||
+                               strstr(phrase_lower, "гош") != NULL ||
+                               strstr(phrase_lower, "жор") != NULL);
+        if (is_georgy_call) {
             send_cancel(alice_fd);
             char resp[128] = "";
             if (!g_georgy_mode) {
