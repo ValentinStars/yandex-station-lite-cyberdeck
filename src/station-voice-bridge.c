@@ -27,6 +27,7 @@
 #include <netinet/tcp.h>
 #include <arpa/inet.h>
 #include <poll.h>
+#include <pthread.h>
 
 #define ALICE_PORT 9875
 #define MAX_FRAME_SIZE (512 * 1024)
@@ -35,6 +36,16 @@
 #define DEFAULT_LAPTOP_IP "192.168.1.178"
 #define DEFAULT_LAPTOP_PORT 9777
 #define DEFAULT_CONF_PATH "/data/opt/etc/voice-triggers.conf"
+
+#define SAR_DIFF_PATH "/sys/devices/platform/soc/ffd00000.cbus/ffd1f000.i2c/i2c-0/0-0012/diff"
+#define SAR_DEFAULT_THRESHOLD 130
+#define SAR_COOLDOWN_SEC 3
+
+static int g_sar_threshold = SAR_DEFAULT_THRESHOLD;
+static volatile sig_atomic_t g_wave_active = 0;
+static time_t g_wave_timestamp = 0;
+static time_t g_last_wave_trigger = 0;
+static pthread_t g_sar_thread;
 
 typedef struct {
     char keywords[MAX_TEXT_LEN]; // e.g. "ноут+ютуб"
@@ -408,6 +419,51 @@ static bool execute_on_laptop(const char *action, char *tts_buf, size_t tts_buf_
     return false;
 }
 
+/* ================= SAR Sensor Gesture Monitor ================= */
+
+static void *sar_monitor_thread(void *arg) {
+    (void)arg;
+    printf("[*] SAR Gesture Monitor thread started (threshold: %d, sysfs: %s)\n",
+           g_sar_threshold, SAR_DIFF_PATH);
+
+    while (g_running) {
+        int fd = open(SAR_DIFF_PATH, O_RDONLY);
+        if (fd >= 0) {
+            char buf[256];
+            ssize_t n = read(fd, buf, sizeof(buf) - 1);
+            close(fd);
+
+            if (n > 0) {
+                buf[n] = '\0';
+                int ch0 = 0, ch1 = 0, ch2 = 0;
+                char *p0 = strstr(buf, "DIFF_CH0 = ");
+                if (p0) ch0 = atoi(p0 + 11);
+                char *p1 = strstr(buf, "DIFF_CH1 = ");
+                if (p1) ch1 = atoi(p1 + 11);
+                char *p2 = strstr(buf, "DIFF_CH2 = ");
+                if (p2) ch2 = atoi(p2 + 11);
+
+                if (ch0 > g_sar_threshold || ch1 > g_sar_threshold || ch2 > g_sar_threshold) {
+                    time_t now = time(NULL);
+                    if (now - g_last_wave_trigger >= SAR_COOLDOWN_SEC) {
+                        g_last_wave_trigger = now;
+                        g_wave_active = 1;
+                        g_wave_timestamp = now;
+                        printf("[+] GESTURE DETECTED: Wave over SAR sensor! (ch0=%d, ch1=%d, ch2=%d)\n", ch0, ch1, ch2);
+                        // Trigger listening directly without wake word
+                        system("echo 's' | /system/vendor/quasar/maind --cli >/dev/null 2>&1 &");
+                    }
+                }
+            }
+        }
+
+        usleep(40000); // 40ms = 25 Hz
+    }
+
+    printf("[*] SAR Gesture Monitor thread stopped.\n");
+    return NULL;
+}
+
 /* ================= Frame Processor ================= */
 
 static int g_alice_state = 0;
@@ -486,8 +542,15 @@ static void process_frame(int alice_fd, const uint8_t *buf, size_t len) {
 
         printf("[*] Heard phrase: \"%s\"\n", phrase);
 
-        // 1. Check Georgy activation or command
+        time_t now = time(NULL);
+        bool wave_valid = (g_wave_active && (now - g_wave_timestamp <= 12));
+        if (g_wave_active && !wave_valid) {
+            g_wave_active = 0;
+        }
+
+        // 1. Check Georgy activation or command explicitly mentioning Georgy
         if (strstr(phrase_lower, "георги")) {
+            g_wave_active = 0;
             send_cancel(alice_fd);
             char resp[128] = "";
             if (!g_georgy_mode) {
@@ -511,9 +574,14 @@ static void process_frame(int alice_fd, const uint8_t *buf, size_t len) {
             return;
         }
 
-        // 2. If Georgy mode is already active, intercept all phrases
-        if (g_georgy_mode) {
-            printf("[+] GEORGY MODE active, dispatching: \"%s\"\n", phrase);
+        // 2. If Georgy mode is already active OR triggered via wave gesture:
+        if (g_georgy_mode || wave_valid) {
+            if (wave_valid) {
+                printf("[+] WAVE GESTURE phrase intercepted: \"%s\"\n", phrase);
+                g_wave_active = 0;
+            } else {
+                printf("[+] GEORGY MODE active, dispatching: \"%s\"\n", phrase);
+            }
             send_cancel(alice_fd);
             char req[MAX_TEXT_LEN + 32];
             snprintf(req, sizeof(req), "GEORGY %s\n", phrase);
@@ -589,6 +657,8 @@ int main(int argc, char *argv[]) {
                 strncpy(g_laptop_ip, argv[++i], sizeof(g_laptop_ip) - 1);
             } else if (strcmp(argv[i], "-p") == 0 && i + 1 < argc) {
                 g_laptop_port = atoi(argv[++i]);
+            } else if (strcmp(argv[i], "-s") == 0 && i + 1 < argc) {
+                g_sar_threshold = atoi(argv[++i]);
             }
         }
     }
@@ -599,7 +669,13 @@ int main(int argc, char *argv[]) {
 
     printf("=== Station Voice Bridge Daemon starting ===\n");
     printf("[*] Laptop target: %s:%d\n", g_laptop_ip, g_laptop_port);
+    printf("[*] SAR Gesture threshold: %d\n", g_sar_threshold);
     load_config(conf_path);
+
+    // Start background gesture detection thread
+    if (pthread_create(&g_sar_thread, NULL, sar_monitor_thread, NULL) != 0) {
+        fprintf(stderr, "[!] Failed to create SAR monitor thread\n");
+    }
 
     uint8_t *frame_buf = malloc(MAX_FRAME_SIZE);
     if (!frame_buf) {
@@ -677,6 +753,9 @@ int main(int argc, char *argv[]) {
     }
 
     free(frame_buf);
+    if (g_sar_thread) {
+        pthread_join(g_sar_thread, NULL);
+    }
     printf("[*] Daemon stopped cleanly.\n");
     return 0;
 }

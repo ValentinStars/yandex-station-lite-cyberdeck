@@ -84,9 +84,45 @@ def handle_georgy_phrase(phrase):
     print(f"[*] Georgy received: \"{phrase}\"")
 
     # 1. Exit / Deactivate
-    if any(w in p for w in ["пока", "хватит", "отключись", "верни алису", "заткнись", "до свидания"]):
+    if any(w in p for w in ["пока", "хватит", "отключись", "верни алису", "до свидания"]):
         threading.Thread(target=speak_georgy, args=("Бывай нахуй! Возвращаю эту зануду Алису.",), daemon=True).start()
         return "DEACTIVATE"
+
+    # Close terminals / opsec
+    elif ("закрой" in p or "выруби" in p or "убей" in p or "прибей" in p) and ("терминал" in p or "хакинг" in p or "опсек" in p or "окна" in p):
+        subprocess.Popen("killall -9 cmatrix hexdump 2>/dev/null", shell=True)
+        subprocess.Popen("for pid in $(pgrep -f 'opsec'); do kill -9 $pid 2>/dev/null; done", shell=True)
+        threading.Thread(target=speak_georgy, args=("Прибил все терминалы нахуй, чистота и порядок, бля.",), daemon=True).start()
+
+    # Time / Clock
+    elif "время" in p or "который час" in p or "сколько времени" in p or "часы" in p:
+        import datetime
+        now_str = datetime.datetime.now().strftime("%H:%M")
+        reply = f"На часах {now_str}, бля! Самое время делом заняться нахуй."
+        threading.Thread(target=speak_georgy, args=(reply,), daemon=True).start()
+
+    # Weather
+    elif "погод" in p:
+        threading.Thread(target=speak_georgy, args=("В окно глянь, бля! Дома сидишь, какая нахуй разница какая там погода!",), daemon=True).start()
+
+    # Identity
+    elif "кто ты" in p or "как тебя зовут" in p or "ты кто" in p:
+        threading.Thread(target=speak_georgy, args=("Я Георгий, бля! Твой личный цифровой братан. Чё надо?",), daemon=True).start()
+
+    # Browser
+    elif "браузер" in p or "хром" in p or "хромиум" in p or "файрфокс" in p or "гугл" in p:
+        subprocess.Popen("xdg-open 'https://google.com' &", shell=True, env=os.environ.copy())
+        threading.Thread(target=speak_georgy, args=("Врубил браузер, ищи чё надо нахуй.",), daemon=True).start()
+
+    # VS Code / Coding
+    elif "vscode" in p or "vs code" in p or "вскод" in p or "кодинг" in p:
+        subprocess.Popen("code &", shell=True, env=os.environ.copy())
+        threading.Thread(target=speak_georgy, args=("Запустил VS Code, иди кодь нахуй.",), daemon=True).start()
+
+    # Music web
+    elif "яндекс музык" in p or "включи музык" in p:
+        subprocess.Popen("xdg-open 'https://music.yandex.ru' &", shell=True, env=os.environ.copy())
+        threading.Thread(target=speak_georgy, args=("Врубил Яндекс Музыку, качай головой нахуй.",), daemon=True).start()
 
     # 2. Terminal
     elif "терминал" in p:
