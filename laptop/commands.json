@@ -19,6 +19,14 @@
     "cmd": "loginctl lock-session",
     "tts": "Ноутбук заблокирован!"
   },
+  "unlock": {
+    "cmd": "kscreen-doctor --dpms on; loginctl unlock-sessions; qdbus6 org.freedesktop.ScreenSaver /ScreenSaver SetActive false 2>/dev/null",
+    "tts": "Ноутбук разблокирован!"
+  },
+  "opsec": {
+    "cmd": "/home/valentin_stars/yandex-station-lite-cyberdeck/laptop/launch-opsec.sh &",
+    "tts": "Режим опсек активирован! Заметаю следы."
+  },
   "prikol": {
     "cmd": "notify-send 'Яндекс Станция' '🔥 Прикол сработал!' --icon=dialog-information",
     "tts": "Прикол запущен!"
