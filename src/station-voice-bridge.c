@@ -513,6 +513,8 @@ static void process_frame(int alice_fd, const uint8_t *buf, size_t len) {
 /* ================= Main Connection Loop ================= */
 
 int main(int argc, char *argv[]) {
+    setvbuf(stdout, NULL, _IOLBF, 0);
+    setvbuf(stderr, NULL, _IONBF, 0);
     if (argc >= 3 && strcmp(argv[1], "say") == 0) {
         int fd = socket(AF_INET, SOCK_STREAM, 0);
         if (fd < 0) return 1;
