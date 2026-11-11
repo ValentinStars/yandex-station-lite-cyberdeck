@@ -1,0 +1,26 @@
+{
+  "ultrakill": {
+    "cmd": "gamemoderun steam steam://rungameid/1229490 &",
+    "tts": "Запускаю Ультракилл на ноуте! Приятной игры!"
+  },
+  "youtube": {
+    "cmd": "xdg-open 'https://www.youtube.com' &",
+    "tts": "Открываю Ютуб на ноуте!"
+  },
+  "mon_off": {
+    "cmd": "kscreen-doctor --dpms off",
+    "tts": "Вырубила монитор!"
+  },
+  "mon_on": {
+    "cmd": "kscreen-doctor --dpms on",
+    "tts": "Врубила монитор!"
+  },
+  "lock": {
+    "cmd": "loginctl lock-session",
+    "tts": "Ноутбук заблокирован!"
+  },
+  "prikol": {
+    "cmd": "notify-send 'Яндекс Станция' '🔥 Прикол сработал!' --icon=dialog-information",
+    "tts": "Прикол запущен!"
+  }
+}

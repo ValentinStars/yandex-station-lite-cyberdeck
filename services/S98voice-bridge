@@ -1,0 +1,32 @@
+#!/bin/sh
+DAEMON="/data/opt/bin/station-voice-bridge"
+CONF="/data/opt/etc/voice-triggers.conf"
+PIDFILE="/var/run/station-voice-bridge.pid"
+
+case "$1" in
+    start)
+        echo "Starting Station Voice Bridge..."
+        if [ -x "$DAEMON" ]; then
+            start-stop-daemon -S -b -m -p "$PIDFILE" -x "$DAEMON" -- -c "$CONF"
+        fi
+        ;;
+    stop)
+        echo "Stopping Station Voice Bridge..."
+        if [ -f "$PIDFILE" ]; then
+            start-stop-daemon -K -p "$PIDFILE"
+            rm -f "$PIDFILE"
+        else
+            killall -q station-voice-bridge
+        fi
+        ;;
+    restart)
+        $0 stop
+        sleep 1
+        $0 start
+        ;;
+    *)
+        echo "Usage: $0 {start|stop|restart}"
+        exit 1
+        ;;
+esac
+exit 0
