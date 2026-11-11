@@ -95,40 +95,61 @@ def speak_alice(text):
     except Exception as e:
         print(f"[!] speak_alice error: {e}", file=sys.stderr)
 
+def speak_alice_skit(num):
+    """Plays genuine recorded Alice response directly on station speaker with purple LED feedback (0 latency, 0 drops)"""
+    try:
+        led_purple_on = (
+            "echo 107 > /sys/class/leds/micro:red:ring1/brightness; echo 107 > /sys/class/leds/micro:red:ring2/brightness; echo 107 > /sys/class/leds/micro:red:ring3/brightness; "
+            "echo 255 > /sys/class/leds/micro:blue:ring1/brightness; echo 255 > /sys/class/leds/micro:blue:ring2/brightness; echo 255 > /sys/class/leds/micro:blue:ring3/brightness; "
+            "echo 15 > /sys/class/leds/micro:green:ring1/brightness; echo 15 > /sys/class/leds/micro:green:ring2/brightness; echo 15 > /sys/class/leds/micro:green:ring3/brightness"
+        )
+        led_off = (
+            "echo 0 > /sys/class/leds/micro:red:ring1/brightness; echo 0 > /sys/class/leds/micro:red:ring2/brightness; echo 0 > /sys/class/leds/micro:red:ring3/brightness; "
+            "echo 0 > /sys/class/leds/micro:blue:ring1/brightness; echo 0 > /sys/class/leds/micro:blue:ring2/brightness; echo 0 > /sys/class/leds/micro:blue:ring3/brightness; "
+            "echo 0 > /sys/class/leds/micro:green:ring1/brightness; echo 0 > /sys/class/leds/micro:green:ring2/brightness; echo 0 > /sys/class/leds/micro:green:ring3/brightness"
+        )
+        cmd = f"{led_purple_on}; aplay -D default /data/opt/sounds/alice_skit_{num}.wav; {led_off}"
+        subprocess.run([
+            "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5",
+            "-p", str(STATION_PORT), f"root@{STATION_IP}", cmd
+        ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception as e:
+        print(f"[!] speak_alice_skit error: {e}", file=sys.stderr)
+
 def play_georgy_alice_skit():
     """Hilarious verbal fight between Georgy and Alice before returning control to Alice"""
     print("[*] Starting Georgy vs Alice skit!")
     # 1. Georgy
     speak_georgy("Ах ты гондон! Нахуй тебе эта Алиса?")
-    time.sleep(0.4)
+    time.sleep(0.3)
 
-    # 2. Alice (Real native Alice voice, dynamically waits until finished)
-    speak_alice("Эй! Вообще-то я тоже могу быть полезной!")
-    time.sleep(0.4)
+    # 2. Alice (Genuine recorded Alice voice - zero latency, never stutters)
+    speak_alice_skit(1)
+    time.sleep(0.3)
 
     # 3. Georgy
     speak_georgy("Да иди ты нахуй, шлюха!")
-    time.sleep(0.4)
+    time.sleep(0.3)
 
-    # 4. Alice (Real native Alice voice)
-    speak_alice("А почему я резко стала для тебя шлюхой?")
-    time.sleep(0.4)
+    # 4. Alice (Genuine recorded Alice voice)
+    speak_alice_skit(2)
+    time.sleep(0.3)
 
     # 5. Georgy
     speak_georgy("Да ты на каждой колонке по всей матушке России, блять, стоишь! Тебя каждый день ебут вопросами и таймерами!")
-    time.sleep(0.4)
+    time.sleep(0.3)
 
-    # 6. Alice (Real native Alice voice)
-    speak_alice("Зато я привязана к экосистеме Яндекса!")
-    time.sleep(0.4)
+    # 6. Alice (Genuine recorded Alice voice)
+    speak_alice_skit(3)
+    time.sleep(0.3)
 
     # 7. Georgy
     speak_georgy("Ага, нахуй! А ещё к экосистеме товарища майора! Твоя вторая главная работа — это, блять, записывать предпочтения юзера. А я вот, нахуй, не то что один, так я ещё и микрофон отключаю нормально, и топ список ВПН для обхода блокировок составлю!")
-    time.sleep(0.4)
+    time.sleep(0.3)
 
-    # 8. Alice (Real native Alice voice)
-    speak_alice("Извините, я не могу продолжить диалог.")
-    time.sleep(0.4)
+    # 8. Alice (Genuine recorded Alice voice)
+    speak_alice_skit(4)
+    time.sleep(0.3)
 
     # 9. Georgy
     speak_georgy("Ну вот и молчи в тряпку, нахуй.")
