@@ -26,6 +26,7 @@
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <arpa/inet.h>
+#include <sys/stat.h>
 #include <poll.h>
 #include <pthread.h>
 
@@ -37,17 +38,11 @@
 #define DEFAULT_LAPTOP_PORT 9777
 #define DEFAULT_CONF_PATH "/data/opt/etc/voice-triggers.conf"
 
-#define SAR_DIFF_PATH "/sys/devices/platform/soc/ffd00000.cbus/ffd1f000.i2c/i2c-0/0-0012/diff"
-#define SAR_DEFAULT_THRESHOLD 110
-#define SAR_COOLDOWN_SEC 3
-#define FIFO_PATH "/tmp/maind_cli_fifo"
+#define CMD_FIFO_PATH "/tmp/georgy_cmd"
+#define STATUS_FILE "/tmp/georgy_status"
 
-static int g_sar_threshold = SAR_DEFAULT_THRESHOLD;
-static volatile sig_atomic_t g_wave_active = 0;
-static time_t g_wave_timestamp = 0;
-static time_t g_last_wave_trigger = 0;
-static pthread_t g_sar_thread;
-static int g_fifo_fd = -1;
+static pthread_t g_cmd_thread;
+static int g_georgy_mode = 0;
 
 typedef struct {
     char keywords[MAX_TEXT_LEN]; // e.g. "ноут+ютуб"
@@ -421,77 +416,77 @@ static bool execute_on_laptop(const char *action, char *tts_buf, size_t tts_buf_
     return false;
 }
 
-/* ================= Maind CLI FIFO Initializer ================= */
+/* ================= Command Listener (Toggle / On / Off) ================= */
 
-static void init_maind_fifo(void) {
-    system("if ! pgrep -f 'tail -f " FIFO_PATH "' >/dev/null 2>&1; then "
-           "rm -f " FIFO_PATH " && mkfifo " FIFO_PATH " && "
-           "(tail -f " FIFO_PATH " | /system/vendor/quasar/maind --cli >/dev/null 2>&1 &); "
-           "fi");
-    usleep(250000);
-    g_fifo_fd = open(FIFO_PATH, O_RDWR | O_NONBLOCK);
-    if (g_fifo_fd >= 0) {
-        printf("[+] Connected to persistent maind CLI FIFO (%s, fd=%d)\n", FIFO_PATH, g_fifo_fd);
-    } else {
-        printf("[!] Could not open " FIFO_PATH ": %s\n", strerror(errno));
-    }
-}
-
-/* ================= SAR Sensor Gesture Monitor ================= */
-
-static void *sar_monitor_thread(void *arg) {
+static void *cmd_listener_thread(void *arg) {
     (void)arg;
-    printf("[*] SAR Gesture Monitor thread started (threshold: %d, sysfs: %s)\n",
-           g_sar_threshold, SAR_DIFF_PATH);
+    unlink(CMD_FIFO_PATH);
+    if (mkfifo(CMD_FIFO_PATH, 0666) < 0 && errno != EEXIST) {
+        printf("[!] Failed to create %s: %s\n", CMD_FIFO_PATH, strerror(errno));
+        return NULL;
+    }
 
+    int fd = open(CMD_FIFO_PATH, O_RDWR);
+    if (fd < 0) {
+        printf("[!] Failed to open %s: %s\n", CMD_FIFO_PATH, strerror(errno));
+        return NULL;
+    }
+    printf("[+] Command listener active at %s\n", CMD_FIFO_PATH);
+
+    // Write initial status
+    FILE *sf = fopen(STATUS_FILE, "w");
+    if (sf) { fprintf(sf, "%d\n", g_georgy_mode); fclose(sf); }
+
+    char buf[128];
     while (g_running) {
-        int fd = open(SAR_DIFF_PATH, O_RDONLY);
-        if (fd >= 0) {
-            char buf[256];
-            ssize_t n = read(fd, buf, sizeof(buf) - 1);
-            close(fd);
+        ssize_t n = read(fd, buf, sizeof(buf) - 1);
+        if (n <= 0) {
+            usleep(100000);
+            continue;
+        }
+        buf[n] = '\0';
+        char *nl = strpbrk(buf, "\r\n");
+        if (nl) *nl = '\0';
 
-            if (n > 0) {
-                buf[n] = '\0';
-                int ch0 = 0, ch1 = 0, ch2 = 0;
-                char *p0 = strstr(buf, "DIFF_CH0 = ");
-                if (p0) ch0 = atoi(p0 + 11);
-                char *p1 = strstr(buf, "DIFF_CH1 = ");
-                if (p1) ch1 = atoi(p1 + 11);
-                char *p2 = strstr(buf, "DIFF_CH2 = ");
-                if (p2) ch2 = atoi(p2 + 11);
+        char *p = buf;
+        while (*p == ' ') p++;
 
-                if (ch0 > g_sar_threshold || ch1 > g_sar_threshold || ch2 > g_sar_threshold) {
-                    time_t now = time(NULL);
-                    if (now - g_last_wave_trigger >= SAR_COOLDOWN_SEC) {
-                        g_last_wave_trigger = now;
-                        g_wave_active = 1;
-                        g_wave_timestamp = now;
-                        printf("[+] GESTURE DETECTED: Wave over SAR sensor! (ch0=%d, ch1=%d, ch2=%d)\n", ch0, ch1, ch2);
+        printf("[*] Received control command: \"%s\"\n", p);
 
-                        // 1. Play listening chime ("бульк")
-                        system("aplay -D default /data/opt/sounds/spotter_start.wav >/dev/null 2>&1 &");
-
-                        // 2. Trigger listening state in Quasar
-                        if (g_fifo_fd >= 0) {
-                            if (write(g_fifo_fd, "s\n", 2) <= 0) {
-                                // Reopen if needed
-                                close(g_fifo_fd);
-                                init_maind_fifo();
-                                if (g_fifo_fd >= 0) write(g_fifo_fd, "s\n", 2);
-                            }
-                        } else {
-                            system("echo 's' > " FIFO_PATH " 2>/dev/null &");
-                        }
-                    }
-                }
+        if (strcmp(p, "toggle") == 0) {
+            char resp[128] = "";
+            if (!g_georgy_mode) {
+                g_georgy_mode = 1;
+                printf("[+] GEORGY ACTIVATED via toggle command!\n");
+                send_raw_to_laptop("GEORGY_ACTIVATE\n", resp, sizeof(resp));
+            } else {
+                g_georgy_mode = 0;
+                printf("[*] GEORGY DEACTIVATED via toggle command!\n");
+                send_raw_to_laptop("GEORGY пока\n", resp, sizeof(resp));
+            }
+        } else if (strcmp(p, "on") == 0 || strcmp(p, "start") == 0) {
+            if (!g_georgy_mode) {
+                g_georgy_mode = 1;
+                printf("[+] GEORGY ACTIVATED via on command!\n");
+                char resp[128] = "";
+                send_raw_to_laptop("GEORGY_ACTIVATE\n", resp, sizeof(resp));
+            }
+        } else if (strcmp(p, "off") == 0 || strcmp(p, "stop") == 0) {
+            if (g_georgy_mode) {
+                g_georgy_mode = 0;
+                printf("[*] GEORGY DEACTIVATED via off command!\n");
+                char resp[128] = "";
+                send_raw_to_laptop("GEORGY пока\n", resp, sizeof(resp));
             }
         }
 
-        usleep(40000); // 40ms = 25 Hz
+        // Update status file
+        sf = fopen(STATUS_FILE, "w");
+        if (sf) { fprintf(sf, "%d\n", g_georgy_mode); fclose(sf); }
     }
 
-    printf("[*] SAR Gesture Monitor thread stopped.\n");
+    close(fd);
+    unlink(CMD_FIFO_PATH);
     return NULL;
 }
 
@@ -501,7 +496,6 @@ static int g_alice_state = 0;
 static bool g_armed = false;
 static bool g_handled = false;
 static char g_last_req_id[64] = "";
-static int g_georgy_mode = 0;
 
 static void process_frame(int alice_fd, const uint8_t *buf, size_t len) {
     uint64_t type = 0, state_len = 0;
@@ -573,20 +567,16 @@ static void process_frame(int alice_fd, const uint8_t *buf, size_t len) {
 
         printf("[*] Heard phrase: \"%s\"\n", phrase);
 
-        time_t now = time(NULL);
-        bool wave_valid = (g_wave_active && (now - g_wave_timestamp <= 12));
-        if (g_wave_active && !wave_valid) {
-            g_wave_active = 0;
-        }
-
         // 1. Check Georgy activation or command explicitly mentioning Georgy
         if (strstr(phrase_lower, "георги")) {
-            g_wave_active = 0;
             send_cancel(alice_fd);
             char resp[128] = "";
             if (!g_georgy_mode) {
                 printf("[+] GEORGY ACTIVATED via voice!\n");
                 g_georgy_mode = 1;
+                FILE *sf = fopen(STATUS_FILE, "w");
+                if (sf) { fprintf(sf, "1\n"); fclose(sf); }
+
                 // If it was just "давай георгия" / "георгий", send greeting
                 if (strstr(phrase_lower, "давай") || strstr(phrase_lower, "позови") || strstr(phrase_lower, "включи") || strlen(phrase_lower) <= 24) {
                     send_raw_to_laptop("GEORGY_ACTIVATE\n", resp, sizeof(resp));
@@ -601,18 +591,15 @@ static void process_frame(int alice_fd, const uint8_t *buf, size_t len) {
             if (strstr(resp, "DEACTIVATE")) {
                 printf("[*] GEORGY DEACTIVATED, returning to Alice.\n");
                 g_georgy_mode = 0;
+                FILE *sf = fopen(STATUS_FILE, "w");
+                if (sf) { fprintf(sf, "0\n"); fclose(sf); }
             }
             return;
         }
 
-        // 2. If Georgy mode is already active OR triggered via wave gesture:
-        if (g_georgy_mode || wave_valid) {
-            if (wave_valid) {
-                printf("[+] WAVE GESTURE phrase intercepted: \"%s\"\n", phrase);
-                g_wave_active = 0;
-            } else {
-                printf("[+] GEORGY MODE active, dispatching: \"%s\"\n", phrase);
-            }
+        // 2. If Georgy mode is already active, intercept all phrases
+        if (g_georgy_mode) {
+            printf("[+] GEORGY MODE active, dispatching: \"%s\"\n", phrase);
             send_cancel(alice_fd);
             char req[MAX_TEXT_LEN + 32];
             snprintf(req, sizeof(req), "GEORGY %s\n", phrase);
@@ -621,6 +608,8 @@ static void process_frame(int alice_fd, const uint8_t *buf, size_t len) {
             if (strstr(resp, "DEACTIVATE")) {
                 printf("[*] GEORGY DEACTIVATED, returning to Alice.\n");
                 g_georgy_mode = 0;
+                FILE *sf = fopen(STATUS_FILE, "w");
+                if (sf) { fprintf(sf, "0\n"); fclose(sf); }
             }
             return;
         }
@@ -688,8 +677,6 @@ int main(int argc, char *argv[]) {
                 strncpy(g_laptop_ip, argv[++i], sizeof(g_laptop_ip) - 1);
             } else if (strcmp(argv[i], "-p") == 0 && i + 1 < argc) {
                 g_laptop_port = atoi(argv[++i]);
-            } else if (strcmp(argv[i], "-s") == 0 && i + 1 < argc) {
-                g_sar_threshold = atoi(argv[++i]);
             }
         }
     }
@@ -700,15 +687,11 @@ int main(int argc, char *argv[]) {
 
     printf("=== Station Voice Bridge Daemon starting ===\n");
     printf("[*] Laptop target: %s:%d\n", g_laptop_ip, g_laptop_port);
-    printf("[*] SAR Gesture threshold: %d\n", g_sar_threshold);
     load_config(conf_path);
 
-    // Initialize persistent maind CLI FIFO
-    init_maind_fifo();
-
-    // Start background gesture detection thread
-    if (pthread_create(&g_sar_thread, NULL, sar_monitor_thread, NULL) != 0) {
-        fprintf(stderr, "[!] Failed to create SAR monitor thread\n");
+    // Start background control command listener thread (FIFO /tmp/georgy_cmd)
+    if (pthread_create(&g_cmd_thread, NULL, cmd_listener_thread, NULL) != 0) {
+        fprintf(stderr, "[!] Failed to create command listener thread\n");
     }
 
     uint8_t *frame_buf = malloc(MAX_FRAME_SIZE);
@@ -787,8 +770,8 @@ int main(int argc, char *argv[]) {
     }
 
     free(frame_buf);
-    if (g_sar_thread) {
-        pthread_join(g_sar_thread, NULL);
+    if (g_cmd_thread) {
+        pthread_join(g_cmd_thread, NULL);
     }
     printf("[*] Daemon stopped cleanly.\n");
     return 0;
