@@ -486,19 +486,33 @@ static void process_frame(int alice_fd, const uint8_t *buf, size_t len) {
 
         printf("[*] Heard phrase: \"%s\"\n", phrase);
 
-        // 1. Check Georgy activation ("давай георгия", "позови георгия", "включи георгия")
-        if ((strstr(phrase_lower, "давай") || strstr(phrase_lower, "позови") || strstr(phrase_lower, "включи")) &&
-            strstr(phrase_lower, "георги")) {
-            printf("[+] GEORGY ACTIVATED via voice!\n");
+        // 1. Check Georgy activation or command
+        if (strstr(phrase_lower, "георги")) {
             send_cancel(alice_fd);
-            g_georgy_mode = 1;
             char resp[128] = "";
-            send_raw_to_laptop("GEORGY_ACTIVATE\n", resp, sizeof(resp));
+            if (!g_georgy_mode) {
+                printf("[+] GEORGY ACTIVATED via voice!\n");
+                g_georgy_mode = 1;
+                // If it was just "давай георгия" / "георгий", send greeting
+                if (strstr(phrase_lower, "давай") || strstr(phrase_lower, "позови") || strstr(phrase_lower, "включи") || strlen(phrase_lower) <= 24) {
+                    send_raw_to_laptop("GEORGY_ACTIVATE\n", resp, sizeof(resp));
+                    return;
+                }
+            }
+            // If already active or combined with command:
+            printf("[+] GEORGY MODE active, dispatching: \"%s\"\n", phrase);
+            char req[MAX_TEXT_LEN + 32];
+            snprintf(req, sizeof(req), "GEORGY %s\n", phrase);
+            send_raw_to_laptop(req, resp, sizeof(resp));
+            if (strstr(resp, "DEACTIVATE")) {
+                printf("[*] GEORGY DEACTIVATED, returning to Alice.\n");
+                g_georgy_mode = 0;
+            }
             return;
         }
 
-        // 2. If Georgy is active OR phrase addresses Georgy directly
-        if (g_georgy_mode || strstr(phrase_lower, "георги")) {
+        // 2. If Georgy mode is already active, intercept all phrases
+        if (g_georgy_mode) {
             printf("[+] GEORGY MODE active, dispatching: \"%s\"\n", phrase);
             send_cancel(alice_fd);
             char req[MAX_TEXT_LEN + 32];
