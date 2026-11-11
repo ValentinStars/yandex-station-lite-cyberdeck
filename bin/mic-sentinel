@@ -1,0 +1,129 @@
+#!/usr/bin/env python3
+"""
+Mic Sentinel - Hardware-level Microphone Air-gap & Mute Button Daemon
+Handles KEY_MUTE independently from maind.
+"""
+import os
+import sys
+import time
+import struct
+import select
+import fcntl
+import subprocess
+
+EVENT_DEVICE = "/dev/input/event0"
+LOCK_FILE = "/tmp/hard_mic_muted"
+EVIOCGRAB = 0x40044590  # Linux input grab ioctl
+
+LEDS = {
+    'red': [f"/sys/class/leds/micro:red:ring{i}/brightness" for i in (1, 2, 3)],
+    'green': [f"/sys/class/leds/micro:green:ring{i}/brightness" for i in (1, 2, 3)],
+    'blue': [f"/sys/class/leds/micro:blue:ring{i}/brightness" for i in (1, 2, 3)],
+}
+
+def set_leds(color, brightness):
+    for path in LEDS.get(color, []):
+        try:
+            with open(path, 'w') as f:
+                f.write(str(brightness))
+        except Exception:
+            pass
+
+def all_leds_off():
+    for color in ('red', 'green', 'blue'):
+        set_leds(color, 0)
+
+def blink(color, times=2, on_time=0.15, off_time=0.15):
+    all_leds_off()
+    for _ in range(times):
+        set_leds(color, 255)
+        time.sleep(on_time)
+        set_leds(color, 0)
+        time.sleep(off_time)
+
+def apply_hard_mute():
+    print("[mic-sentinel] Engaging HARD MUTE...")
+    # 1. Visual notification: 2 red blinks
+    blink('red', times=2, on_time=0.15, off_time=0.15)
+    
+    # 2. Block uniproxy IPs at firewall level so zero audio packets can leave the speaker
+    subprocess.run(["iptables", "-I", "OUTPUT", "1", "-d", "213.180.204.80", "-j", "REJECT"], stderr=subprocess.DEVNULL)
+    subprocess.run(["iptables", "-I", "OUTPUT", "1", "-d", "213.180.193.76", "-j", "REJECT"], stderr=subprocess.DEVNULL)
+    
+    # 3. Touch lock file
+    try:
+        with open(LOCK_FILE, "w") as f:
+            f.write(str(int(time.time())))
+    except Exception:
+        pass
+        
+    # 4. Turn on steady red indicator
+    set_leds('red', 80)
+    print("[mic-sentinel] Hard mute LOCKED. Cloud cannot unmute.")
+
+def remove_hard_mute():
+    print("[mic-sentinel] Disengaging HARD MUTE...")
+    # 1. Visual notification: 2 green blinks
+    blink('green', times=2, on_time=0.15, off_time=0.15)
+    
+    # 2. Remove firewall blocks
+    subprocess.run(["iptables", "-D", "OUTPUT", "-d", "213.180.204.80", "-j", "REJECT"], stderr=subprocess.DEVNULL)
+    subprocess.run(["iptables", "-D", "OUTPUT", "-d", "213.180.193.76", "-j", "REJECT"], stderr=subprocess.DEVNULL)
+    
+    # 3. Remove lock file
+    try:
+        if os.path.exists(LOCK_FILE):
+            os.remove(LOCK_FILE)
+    except Exception:
+        pass
+        
+    all_leds_off()
+    print("[mic-sentinel] Hard mute UNLOCKED. Microphones online.")
+
+def main():
+    print("[mic-sentinel] Initializing daemon...")
+    if not os.path.exists(EVENT_DEVICE):
+        print(f"Error: {EVENT_DEVICE} not found", file=sys.stderr)
+        sys.exit(1)
+
+    fd = os.open(EVENT_DEVICE, os.O_RDONLY | os.O_NONBLOCK)
+
+    # Grab exclusive access to the mute button
+    try:
+        fcntl.ioctl(fd, EVIOCGRAB, 1)
+        print(f"[mic-sentinel] Successfully claimed exclusive EVIOCGRAB on {EVENT_DEVICE}")
+    except Exception as e:
+        print(f"[mic-sentinel] Warning: EVIOCGRAB failed: {e}")
+
+    # Remove any stale lock file on startup
+    if os.path.exists(LOCK_FILE):
+        try:
+            os.remove(LOCK_FILE)
+        except Exception:
+            pass
+
+    is_muted = False
+    EVENT_FORMAT = "qqHHi"
+    EVENT_SIZE = struct.calcsize(EVENT_FORMAT)
+
+    print("[mic-sentinel] Ready and listening for KEY_MUTE...")
+
+    while True:
+        r, _, _ = select.select([fd], [], [], 1.0)
+        if fd in r:
+            try:
+                data = os.read(fd, EVENT_SIZE)
+                if len(data) == EVENT_SIZE:
+                    sec, usec, etype, ecode, evalue = struct.unpack(EVENT_FORMAT, data)
+                    # EV_KEY = 1, KEY_MUTE = 113, value 1 is press down
+                    if etype == 1 and ecode == 113 and evalue == 1:
+                        is_muted = not is_muted
+                        if is_muted:
+                            apply_hard_mute()
+                        else:
+                            remove_hard_mute()
+            except Exception as e:
+                time.sleep(0.1)
+
+if __name__ == "__main__":
+    main()

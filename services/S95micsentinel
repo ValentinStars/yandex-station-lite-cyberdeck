@@ -1,0 +1,32 @@
+#!/bin/sh
+DAEMON="/data/opt/bin/mic-sentinel"
+PIDFILE="/var/run/micsentinel.pid"
+
+case "$1" in
+    start)
+        echo "Starting mic-sentinel daemon..."
+        if [ -f "$PIDFILE" ] && kill -0 $(cat "$PIDFILE") 2>/dev/null; then
+            echo "Already running."
+            exit 0
+        fi
+        nohup python3 "$DAEMON" > /dev/null 2>&1 &
+        echo $! > "$PIDFILE"
+        echo "Started PID: $(cat $PIDFILE)"
+        ;;
+    stop)
+        echo "Stopping mic-sentinel daemon..."
+        if [ -f "$PIDFILE" ]; then
+            kill $(cat "$PIDFILE") 2>/dev/null
+            rm -f "$PIDFILE"
+        fi
+        ;;
+    restart)
+        $0 stop
+        sleep 1
+        $0 start
+        ;;
+    *)
+        echo "Usage: $0 {start|stop|restart}"
+        exit 1
+        ;;
+esac
