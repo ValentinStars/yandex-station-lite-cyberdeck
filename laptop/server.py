@@ -32,7 +32,7 @@ def load_commands():
         return {}
 
 def speak_georgy(text):
-    """Synthesizes speech using espeak-ng Russian voice and streams directly to station aplay"""
+    """Synthesizes speech using espeak-ng Russian voice and streams directly to station aplay with red LED feedback"""
     try:
         wav_path = "/tmp/georgy_temp.wav"
         subprocess.run([
@@ -40,9 +40,12 @@ def speak_georgy(text):
         ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         
         with open(wav_path, "rb") as f:
+            led_on = "echo 255 > /sys/class/leds/micro:red:ring1/brightness; echo 255 > /sys/class/leds/micro:red:ring2/brightness; echo 255 > /sys/class/leds/micro:red:ring3/brightness"
+            led_off = "echo 0 > /sys/class/leds/micro:red:ring1/brightness; echo 0 > /sys/class/leds/micro:red:ring2/brightness; echo 0 > /sys/class/leds/micro:red:ring3/brightness"
+            remote_cmd = f"{led_on}; aplay -D default; {led_off}"
             subprocess.run([
                 "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=2",
-                "-p", str(STATION_PORT), f"root@{STATION_IP}", "aplay -D default"
+                "-p", str(STATION_PORT), f"root@{STATION_IP}", remote_cmd
             ], stdin=f, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except Exception as e:
         print(f"[!] speak_georgy error: {e}", file=sys.stderr)

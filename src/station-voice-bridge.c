@@ -38,14 +38,16 @@
 #define DEFAULT_CONF_PATH "/data/opt/etc/voice-triggers.conf"
 
 #define SAR_DIFF_PATH "/sys/devices/platform/soc/ffd00000.cbus/ffd1f000.i2c/i2c-0/0-0012/diff"
-#define SAR_DEFAULT_THRESHOLD 130
+#define SAR_DEFAULT_THRESHOLD 110
 #define SAR_COOLDOWN_SEC 3
+#define FIFO_PATH "/tmp/maind_cli_fifo"
 
 static int g_sar_threshold = SAR_DEFAULT_THRESHOLD;
 static volatile sig_atomic_t g_wave_active = 0;
 static time_t g_wave_timestamp = 0;
 static time_t g_last_wave_trigger = 0;
 static pthread_t g_sar_thread;
+static int g_fifo_fd = -1;
 
 typedef struct {
     char keywords[MAX_TEXT_LEN]; // e.g. "ноут+ютуб"
@@ -419,6 +421,22 @@ static bool execute_on_laptop(const char *action, char *tts_buf, size_t tts_buf_
     return false;
 }
 
+/* ================= Maind CLI FIFO Initializer ================= */
+
+static void init_maind_fifo(void) {
+    system("if ! pgrep -f 'tail -f " FIFO_PATH "' >/dev/null 2>&1; then "
+           "rm -f " FIFO_PATH " && mkfifo " FIFO_PATH " && "
+           "(tail -f " FIFO_PATH " | /system/vendor/quasar/maind --cli >/dev/null 2>&1 &); "
+           "fi");
+    usleep(250000);
+    g_fifo_fd = open(FIFO_PATH, O_RDWR | O_NONBLOCK);
+    if (g_fifo_fd >= 0) {
+        printf("[+] Connected to persistent maind CLI FIFO (%s, fd=%d)\n", FIFO_PATH, g_fifo_fd);
+    } else {
+        printf("[!] Could not open " FIFO_PATH ": %s\n", strerror(errno));
+    }
+}
+
 /* ================= SAR Sensor Gesture Monitor ================= */
 
 static void *sar_monitor_thread(void *arg) {
@@ -450,8 +468,21 @@ static void *sar_monitor_thread(void *arg) {
                         g_wave_active = 1;
                         g_wave_timestamp = now;
                         printf("[+] GESTURE DETECTED: Wave over SAR sensor! (ch0=%d, ch1=%d, ch2=%d)\n", ch0, ch1, ch2);
-                        // Trigger listening directly without wake word
-                        system("echo 's' | /system/vendor/quasar/maind --cli >/dev/null 2>&1 &");
+
+                        // 1. Play listening chime ("бульк")
+                        system("aplay -D default /data/opt/sounds/spotter_start.wav >/dev/null 2>&1 &");
+
+                        // 2. Trigger listening state in Quasar
+                        if (g_fifo_fd >= 0) {
+                            if (write(g_fifo_fd, "s\n", 2) <= 0) {
+                                // Reopen if needed
+                                close(g_fifo_fd);
+                                init_maind_fifo();
+                                if (g_fifo_fd >= 0) write(g_fifo_fd, "s\n", 2);
+                            }
+                        } else {
+                            system("echo 's' > " FIFO_PATH " 2>/dev/null &");
+                        }
                     }
                 }
             }
@@ -671,6 +702,9 @@ int main(int argc, char *argv[]) {
     printf("[*] Laptop target: %s:%d\n", g_laptop_ip, g_laptop_port);
     printf("[*] SAR Gesture threshold: %d\n", g_sar_threshold);
     load_config(conf_path);
+
+    // Initialize persistent maind CLI FIFO
+    init_maind_fifo();
 
     // Start background gesture detection thread
     if (pthread_create(&g_sar_thread, NULL, sar_monitor_thread, NULL) != 0) {

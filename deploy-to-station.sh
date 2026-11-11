@@ -23,6 +23,10 @@ echo "[+] Uploading voice-triggers.conf..."
 ssh -p "$STATION_PORT" root@"$STATION_IP" "mkdir -p /data/opt/etc"
 cat "$REPO_DIR/etc/voice-triggers.conf" | ssh -p "$STATION_PORT" root@"$STATION_IP" "cat > /data/opt/etc/voice-triggers.conf"
 
+echo "[+] Uploading sounds..."
+ssh -p "$STATION_PORT" root@"$STATION_IP" "mkdir -p /data/opt/sounds"
+cat "$REPO_DIR/sounds/spotter_start.wav" | ssh -p "$STATION_PORT" root@"$STATION_IP" "cat > /data/opt/sounds/spotter_start.wav"
+
 echo "[+] Uploading init service..."
 ssh -p "$STATION_PORT" root@"$STATION_IP" "mount -o remount,rw /"
 cat "$REPO_DIR/services/S98voice-bridge" | ssh -p "$STATION_PORT" root@"$STATION_IP" "cat > /etc/init.d/S98voice-bridge && chmod +x /etc/init.d/S98voice-bridge"
